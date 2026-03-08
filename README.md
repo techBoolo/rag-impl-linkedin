@@ -1,47 +1,69 @@
-# RAG Project Setup
+# RAG Project: LinkedIn PDF Analyzer
 
-This project is a setup for a Retrieval-Augmented Generation (RAG) system using LangChain and a local Ollama LLM.
+This project is a Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It is designed to load, process, and query PDF documents using local LLMs.
 
-## Setup Steps
+---
 
-### 1. Project Initialization
-The project was initialized using `uv`.
-```bash
-mkdir rag-project && cd rag-project && uv init && uv venv
-```
+## 🚀 Features
 
-### 2. Dependency Installation
-Required libraries for LangChain and Ollama integration:
-```bash
-uv add langchain langchain-ollama
-```
+- **Local LLM**: Powered by Ollama (`llama3.1`).
+- **Async Processing**: High-performance asynchronous document loading.
+- **Modern Tooling**: Managed by `uv` for lightning-fast dependency management and environment isolation.
 
-### 3. Ollama Model
-This project uses the `llama3.1` model. To ensure it is available locally:
-```bash
-ollama list
-```
-If you need to pull the model:
+---
+
+## 🛠️ Setup
+
+### 1. Prerequisites
+- [Ollama](https://ollama.com/) installed and running.
+- [uv](https://github.com/astral-sh/uv) installed.
+
+### 2. Pull the Model
+Ensure the `llama3.1` model is available locally:
 ```bash
 ollama pull llama3.1
 ```
 
-### 4. Verification Script
-A test script `main.py` is used to verify the connection to Ollama.
+### 3. Initialize & Install Dependencies
+```bash
+# Initialize project environment
+uv venv
+source .venv/bin/activate
 
-**Running the test:**
+# Install core and RAG-specific dependencies
+uv add langchain langchain-ollama langchain-community pypdf
+```
+
+---
+
+## 📂 Document Loading
+
+The project currently supports loading PDF documents asynchronously from the `docs/` directory.
+
+- **Current Document**: `docs/constitution.pdf`
+- **Logic**: Uses `PyPDFLoader` with `alazy_load` for memory-efficient iteration.
+
+---
+
+## 🏃 Running the Project
+
+To verify the document loading and environment setup, run:
+
 ```bash
 uv run python main.py
 ```
 
-**What it does:**
-It initializes `ChatOllama` with `llama3.1` and asks: *"What is the official name of Ethiopia?"*
-
-## Expected Output
-If correctly set up, you should see:
+### Expected Output
 ```text
-Prompt: What is the official name of Ethiopia?
+Loading document from: .../rag-project/docs/constitution.pdf
 
-Response:
-The official name of Ethiopia is the Federal Democratic Republic of Ethiopia (FDRE).
+Successfully loaded 40 pages.
 ```
+
+---
+
+## 📈 Roadmap
+- [x] Project Initialization
+- [x] Basic LLM Connection
+- [x] Asynchronous Document Loading
+
