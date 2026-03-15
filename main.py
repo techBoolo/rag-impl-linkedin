@@ -2,6 +2,7 @@ import asyncio
 import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_ollama import OllamaEmbeddings
 
 async def load_document(file_path):
     """Load the document"""
@@ -16,6 +17,29 @@ async def split_document(doc_iterator, chunk_size=1000, chunk_overlap=200):
         chunks = text_splitter.split_documents([doc])
         for chunk in chunks:
             yield chunk
+
+def get_embeddings_model():
+    """Return the Ollama embeddings model."""
+    return OllamaEmbeddings(model="nomic-embed-text")
+
+async def process_embeddings(chunk_generator, batch_size=10):
+    """Batches chunks and calls aembed_documents asynchronously."""
+    embeddings_model = get_embeddings_model()
+    batch = []
+    
+    async for chunk in chunk_generator:
+        batch.append(chunk)
+        if len(batch) >= batch_size:
+            texts = [c.page_content for c in batch]
+            vectors = await embeddings_model.aembed_documents(texts)
+            yield batch, vectors
+            batch = []
+            
+    # Process remaining chunks
+    if batch:
+        texts = [c.page_content for c in batch]
+        vectors = await embeddings_model.aembed_documents(texts)
+        yield batch, vectors
 
 async def main():
     # Get the directory of the current script
@@ -33,17 +57,19 @@ async def main():
     print(f"Loading document from: {doc_path}")
     doc_iterator = await load_document(doc_path)
 
-    # Test to show splitting works
-    chunk_count = 0
-    print("Splitting document into chunks...")
+    print("Splitting document and generating embeddings in batches...")
+    batch_count = 0
+    total_chunks_processed = 0
 
-    async for chunk in split_document(doc_iterator):
-        chunk_count += 1
-        # To avoid printing too much, we just count them and maybe print the first one
-        if chunk_count == 1:
-            print(f"\nExample of first chunk:\n{'-'*40}\n{chunk.page_content}\n{'-'*40}")
+    async for batch, vectors in process_embeddings(split_document(doc_iterator), batch_size=10):
+        batch_count += 1
+        total_chunks_processed += len(batch)
+        print(f"Processed batch {batch_count} ({len(batch)} chunks). Total chunks embedded: {total_chunks_processed}")
+        
+        if batch_count == 1:
+            print(f"Example vector dimension for first chunk in batch 1: {len(vectors[0])}")
     
-    print(f"\nSuccessfully generated {chunk_count} chunks!")
+    print(f"\nSuccessfully generated embeddings for {total_chunks_processed} chunks across {batch_count} batches!")
 
 if __name__ == "__main__":
     try:

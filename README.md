@@ -6,9 +6,9 @@ This project is a Retrieval-Augmented Generation (RAG) system built with **LangC
 
 ## 🚀 Features
 
-- **Local LLM**: Powered by Ollama (`llama3.1`).
-- **Async Processing**: High-performance asynchronous document loading using `alazy_load`.
-- **Memory Efficiency**: Document splitting using `RecursiveCharacterTextSplitter` with async generators.
+- **Local LLM & Embeddings**: Powered by Ollama (`llama3.1` and `nomic-embed-text`).
+- **Async Processing**: High-performance asynchronous document loading using `alazy_load` and concurrent batch embeddings using `aembed_documents`.
+- **Memory Efficiency**: Document splitting using `RecursiveCharacterTextSplitter` and lazy embedding chunks with via async generators.
 - **Modern Tooling**: Managed by `uv` for lightning-fast dependency management and environment isolation.
 
 ---
@@ -19,10 +19,11 @@ This project is a Retrieval-Augmented Generation (RAG) system built with **LangC
 - [Ollama](https://ollama.com/) installed and running.
 - [uv](https://github.com/astral-sh/uv) installed.
 
-### 2. Pull the Model
-Ensure the `llama3.1` model is available locally:
+### 2. Pull the Models
+Ensure the `llama3.1` and `nomic-embed-text` models are available locally:
 ```bash
 ollama pull llama3.1
+ollama pull nomic-embed-text
 ```
 
 ### 3. Initialize & Install Dependencies
@@ -37,14 +38,15 @@ uv add langchain langchain-ollama langchain-community langchain-text-splitters p
 
 ---
 
-## 📂 Document Loading & Splitting
+## 📂 Document Loading & Processing
 
-The project supports asynchronous document loading and memory-efficient splitting.
+The project supports asynchronous document loading, memory-efficient splitting, and async batch embedding.
 
 - **Current Document**: `docs/constitution.pdf`
 - **Logic**: 
   - Uses `PyPDFLoader` with `alazy_load` to stream pages.
   - Uses `RecursiveCharacterTextSplitter` to lazily yield 1000-character chunks with 200-character overlap.
+  - Batches document chunks iteratively via `OllamaEmbeddings` to generate vectors using `nomic-embed-text` without overloading memory.
 
 ---
 
@@ -59,14 +61,14 @@ uv run python main.py
 ### Expected Output
 ```text
 Loading document from: .../rag-project/docs/constitution.pdf
-Splitting document into chunks...
+Splitting document and generating embeddings in batches...
+Processed batch 1 (10 chunks). Total chunks embedded: 10
+Example vector dimension for first chunk in batch 1: 768
+Processed batch 2 (10 chunks). Total chunks embedded: 20
+...
+Processed batch 12 (4 chunks). Total chunks embedded: 114
 
-Example of first chunk:
-----------------------------------------
-... (Preamble text) ...
-----------------------------------------
-
-Successfully generated 114 chunks!
+Successfully generated embeddings for 114 chunks across 12 batches!
 ```
 
 ---
@@ -76,3 +78,4 @@ Successfully generated 114 chunks!
 - [x] Basic LLM Connection
 - [x] Asynchronous Document Loading
 - [x] Memory-Efficient Document Splitting
+- [x] Asynchronous Batch Embeddings
