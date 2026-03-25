@@ -3,6 +3,7 @@ import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings
+from langchain_community.vectorstores import FAISS
 
 async def load_document(file_path):
     """Load the document"""
@@ -21,6 +22,27 @@ async def split_document(doc_iterator, chunk_size=1000, chunk_overlap=200):
 def get_embeddings_model():
     """Return the Ollama embeddings model."""
     return OllamaEmbeddings(model="nomic-embed-text")
+
+async def create_faiss_index(batch, vectors, vector_store=None):
+    """Adds pre-computed embeddings to the FAISS index."""
+    embeddings = get_embeddings_model()
+    text_embedding_pairs = list(zip([chunk.page_content for chunk in batch], vectors))
+    metadatas = [chunk.metadata for chunk in batch]
+    if vector_store is None:
+        # Initial creation
+        vector_store = await FAISS.afrom_embeddings(
+            text_embedding_pairs, 
+            embeddings, 
+            metadatas
+        )
+    else:
+        # Append to existing index
+        vector_store.add_embeddings(
+            text_embeddings=text_embedding_pairs, 
+            metadatas=metadatas
+        )
+
+    return vector_store
 
 async def process_embeddings(chunk_generator, batch_size=10):
     """Batches chunks and calls aembed_documents asynchronously."""
@@ -61,15 +83,20 @@ async def main():
     batch_count = 0
     total_chunks_processed = 0
 
+    # create vector store, we are not saving in the database
+    vector_store = None
     async for batch, vectors in process_embeddings(split_document(doc_iterator), batch_size=10):
         batch_count += 1
         total_chunks_processed += len(batch)
-        print(f"Processed batch {batch_count} ({len(batch)} chunks). Total chunks embedded: {total_chunks_processed}")
+        vector_store = await create_faiss_index(batch, vectors, vector_store)
+        print(f"Processed batch {batch_count} ({len(batch)} chunks) -> Added to FAISS vector store. Total chunks embedded: {total_chunks_processed}")
         
         if batch_count == 1:
             print(f"Example vector dimension for first chunk in batch 1: {len(vectors[0])}")
     
-    print(f"\nSuccessfully generated embeddings for {total_chunks_processed} chunks across {batch_count} batches!")
+    print(f"\nSuccessfully created FAISS index with {total_chunks_processed} chunks across {batch_count} batches!")
+    if vector_store is not None:
+        print(f"Final vector store doc count: {vector_store.index.ntotal}")
 
 if __name__ == "__main__":
     try:
