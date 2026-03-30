@@ -63,40 +63,47 @@ async def process_embeddings(chunk_generator, batch_size=10):
         vectors = await embeddings_model.aembed_documents(texts)
         yield batch, vectors
 
-async def main():
-    # Get the directory of the current script
-    project_dir = os.path.dirname(os.path.abspath(__file__))
-    # Define the path to the docs folder and the PDF file
-    doc_dir = os.path.join(project_dir, 'docs')
-    doc_path = os.path.join(doc_dir, 'constitution.pdf')
-
-    # Check if the file exists
-    if not os.path.exists(doc_path):
-        print(f"Error: Document not found at {doc_path}")
+async def create_faiss_index_from_file(file_path, index_name="faiss_index"):
+    """Orchestrates the lazy loading, splitting, and indexing process."""
+    if os.path.exists(index_name):
+        print("Index already exists. Please remove the index folder to reindex.")
+        return
+  
+    if not os.path.exists(file_path):
+        print("File does not exist.")
         return
 
-    # Load the document asynchronously
-    print(f"Loading document from: {doc_path}")
-    doc_iterator = await load_document(doc_path)
-
+    doc_iterator = await load_document(file_path)
+    chunk_generator = split_document(doc_iterator)
+    vector_store = None
+    
+    print(f"Loading document from: {file_path}")
     print("Splitting document and generating embeddings in batches...")
+    
     batch_count = 0
     total_chunks_processed = 0
 
-    # create vector store, we are not saving in the database
-    vector_store = None
-    async for batch, vectors in process_embeddings(split_document(doc_iterator), batch_size=10):
+    async for batch, vectors in process_embeddings(chunk_generator, batch_size=10):
         batch_count += 1
         total_chunks_processed += len(batch)
         vector_store = await create_faiss_index(batch, vectors, vector_store)
         print(f"Processed batch {batch_count} ({len(batch)} chunks) -> Added to FAISS vector store. Total chunks embedded: {total_chunks_processed}")
-        
-        if batch_count == 1:
-            print(f"Example vector dimension for first chunk in batch 1: {len(vectors[0])}")
-    
-    print(f"\nSuccessfully created FAISS index with {total_chunks_processed} chunks across {batch_count} batches!")
-    if vector_store is not None:
-        print(f"Final vector store doc count: {vector_store.index.ntotal}")
+
+    # Save the index to the local disk
+    if vector_store:
+        vector_store.save_local(index_name)
+        print("\nSuccessfully created FAISS index with {} chunks across {} batches!".format(total_chunks_processed, batch_count))
+        print("Index successfully saved to disk.")
+    else:
+        print("Error: No data was indexed.")
+
+async def main():
+    # Only if you have a get_chat_model function defined, otherwise skip or import it appropriately
+    # llm = get_chat_model() 
+
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    doc_path = os.path.join(project_dir, 'docs', 'constitution.pdf')
+    await create_faiss_index_from_file(doc_path)
 
 if __name__ == "__main__":
     try:

@@ -1,4 +1,4 @@
-# RAG Project: Search Index: Organizing Vectors with FAISS
+# RAG Project: Data Ingestion
 
 This project is a Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It is designed to load, process, and query PDF documents using local LLMs.
 
@@ -47,7 +47,7 @@ The project supports asynchronous document loading, memory-efficient splitting, 
   - Uses `PyPDFLoader` with `alazy_load` to stream pages.
   - Uses `RecursiveCharacterTextSplitter` to lazily yield 1000-character chunks with 200-character overlap.
   - Batches document chunks iteratively via `OllamaEmbeddings` to generate vectors using `nomic-embed-text` without overloading memory.
-  - Builds an in-memory **FAISS** vector store iteratively from generated embeddings.
+  - Builds a **FAISS** vector store iteratively from generated embeddings and saves it to local disk for persistence.
 
 ---
 
@@ -64,13 +64,12 @@ uv run python main.py
 Loading document from: .../rag-project/docs/constitution.pdf
 Splitting document and generating embeddings in batches...
 Processed batch 1 (10 chunks) -> Added to FAISS vector store. Total chunks embedded: 10
-Example vector dimension for first chunk in batch 1: 768
 Processed batch 2 (10 chunks) -> Added to FAISS vector store. Total chunks embedded: 20
 ...
 Processed batch 12 (4 chunks) -> Added to FAISS vector store. Total chunks embedded: 114
 
 Successfully created FAISS index with 114 chunks across 12 batches!
-Final vector store doc count: 114
+Index successfully saved to disk.
 ```
 
 ---
@@ -81,4 +80,5 @@ Final vector store doc count: 114
 - [x] Asynchronous Document Loading
 - [x] Memory-Efficient Document Splitting
 - [x] Asynchronous Batch Embeddings
-- [x] FAISS In-Memory Vector Store Integration
+- [x] FAISS Vector Store Integration
+- [x] FAISS Index Persistence to Disk
