@@ -1,4 +1,4 @@
-# RAG Project: Data Ingestion
+# RAG Project: Load Generated Index
 
 This project is a Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It is designed to load, process, and query PDF documents using local LLMs.
 
