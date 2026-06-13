@@ -97,13 +97,46 @@ async def create_faiss_index_from_file(file_path, index_name="faiss_index"):
     else:
         print("Error: No data was indexed.")
 
+async def load_index(index_name="faiss_index"):
+    """
+    Loads the FAISS index from disk.
+    Returns the vector_store object ready for similarity search.
+    """
+    if not os.path.exists(index_name):
+        print(f"Error: Index folder '{index_name}' not found.")
+        return None
+
+    # we must use the same embedding model used during creation
+    embeddings = get_embeddings_model()
+
+    # allow_dangerous_deserialization=True is required to load the metadata (index.pkl)
+    vector_store = FAISS.load_local(
+        index_name, 
+        embeddings, 
+        allow_dangerous_deserialization=True
+    )
+    
+    print(f"Index '{index_name}' loaded successfully.")
+    return vector_store
+
 async def main():
     # Only if you have a get_chat_model function defined, otherwise skip or import it appropriately
     # llm = get_chat_model() 
 
     project_dir = os.path.dirname(os.path.abspath(__file__))
     doc_path = os.path.join(project_dir, 'docs', 'constitution.pdf')
-    await create_faiss_index_from_file(doc_path)
+    index_name = "faiss_index"
+
+    # 1. Create index if it's missing
+    if not os.path.exists(index_name):
+        await create_faiss_index_from_file(doc_path, index_name)
+    
+    # 2. Test loading the index from local disk
+    print("\nAttempting to load index from disk...")
+    vector_store = await load_index(index_name)
+    
+    if vector_store:
+        print(f"Verified loaded store size: {vector_store.index.ntotal} documents")
 
 if __name__ == "__main__":
     try:

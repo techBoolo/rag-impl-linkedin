@@ -9,6 +9,7 @@ This project is a Retrieval-Augmented Generation (RAG) system built with **LangC
 - **Local LLM & Embeddings**: Powered by Ollama (`llama3.1` and `nomic-embed-text`).
 - **Async Processing**: High-performance asynchronous document loading using `alazy_load` and concurrent batch embeddings using `aembed_documents`.
 - **Memory Efficiency**: Document splitting using `RecursiveCharacterTextSplitter` and lazy embedding chunks with via async generators.
+- **Index Reusability**: Dynamically loads the persisted FAISS index from disk when available, skipping redundant PDF processing and embedding steps.
 - **Modern Tooling**: Managed by `uv` for lightning-fast dependency management and environment isolation.
 
 ---
@@ -44,10 +45,12 @@ The project supports asynchronous document loading, memory-efficient splitting, 
 
 - **Current Document**: `docs/constitution.pdf`
 - **Logic**: 
-  - Uses `PyPDFLoader` with `alazy_load` to stream pages.
+  - Checks if a persisted FAISS index folder (`faiss_index`) exists.
+  - If it exists, it loads the vector store directly from disk using `FAISS.load_local`.
+  - If not, it uses `PyPDFLoader` with `alazy_load` to stream pages.
   - Uses `RecursiveCharacterTextSplitter` to lazily yield 1000-character chunks with 200-character overlap.
   - Batches document chunks iteratively via `OllamaEmbeddings` to generate vectors using `nomic-embed-text` without overloading memory.
-  - Builds a **FAISS** vector store iteratively from generated embeddings and saves it to local disk for persistence.
+  - Builds a **FAISS** vector store iteratively from generated embeddings and saves it to the local disk for persistence.
 
 ---
 
@@ -59,7 +62,7 @@ To verify the document loading, splitting, and environment setup, run:
 uv run python main.py
 ```
 
-### Expected Output
+### Expected Output (Initial Creation)
 ```text
 Loading document from: .../rag-project/docs/constitution.pdf
 Splitting document and generating embeddings in batches...
@@ -72,6 +75,14 @@ Successfully created FAISS index with 114 chunks across 12 batches!
 Index successfully saved to disk.
 ```
 
+### Expected Output (Subsequent Starts)
+When run after the index has already been saved to disk, it skips embedding and loads directly:
+```text
+Attempting to load index from disk...
+Index 'faiss_index' loaded successfully.
+Verified loaded store size: 114 documents
+```
+
 ---
 
 ## 📈 Roadmap
@@ -82,3 +93,4 @@ Index successfully saved to disk.
 - [x] Asynchronous Batch Embeddings
 - [x] FAISS Vector Store Integration
 - [x] FAISS Index Persistence to Disk
+- [x] FAISS Index Loading from Disk
