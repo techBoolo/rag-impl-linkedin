@@ -2,8 +2,11 @@ import asyncio
 import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_community.vectorstores import FAISS
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 
 async def load_document(file_path):
     """Load the document"""
@@ -22,6 +25,10 @@ async def split_document(doc_iterator, chunk_size=1000, chunk_overlap=200):
 def get_embeddings_model():
     """Return the Ollama embeddings model."""
     return OllamaEmbeddings(model="nomic-embed-text")
+
+def get_chat_model(model="llama3.1"):
+    """Return the Ollama chat model."""
+    return ChatOllama(model=model)
 
 async def create_faiss_index(batch, vectors, vector_store=None):
     """Adds pre-computed embeddings to the FAISS index."""
@@ -119,10 +126,81 @@ async def load_index(index_name="faiss_index"):
     print(f"Index '{index_name}' loaded successfully.")
     return vector_store
 
-async def main():
-    # Only if you have a get_chat_model function defined, otherwise skip or import it appropriately
-    # llm = get_chat_model() 
+async def generate_answer(vector_store, query):
+    """
+    Takes a query, finds relevant context in the FAISS index, 
+    and generates an answer using an Ollama LLM.
+    """
+    # 1. Setup the LLM (Using Ollama)
+    llm = get_chat_model()
 
+    # 2. Define the Prompt Template
+    template = """
+    You are an assistant for question-answering tasks based specifically on the Ethiopian Constitution.
+    Use the following pieces of retrieved context to answer the question. 
+    If you don't know the answer based on the context, just say that you don't know. 
+    Use three sentences maximum and keep the answer concise.
+
+    Context:
+    {context}
+
+    Question: {question}
+
+    Answer:
+    """
+
+    prompt = ChatPromptTemplate.from_template(template)
+
+    # 3. Retrieve documents (using our search logic)
+    retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+
+    # 4. Helper function to format the documents into a single string
+    def format_docs(docs):
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    # 5. Create the RAG Chain
+    rag_chain = (
+        {"context": retriever | format_docs, "question": RunnablePassthrough()}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+
+    # 6. Execute the chain
+    response = await rag_chain.ainvoke(query)
+    return response
+
+async def start_conversation(vector_store):
+    """
+    Handles the interactive loop between the user and the AI.
+    """
+    if not vector_store:
+        print("Error: Vector store not found. Cannot start conversation.")
+        return
+
+    print("\n" + "="*50)
+    print("ETHIOPIAN CONSTITUTION CHATBOT")
+    print("Type your questions below. Type 'exit' or 'quit' to stop.")
+    print("="*50 + "\n")
+
+    while True:
+        query = input("You: ").strip()
+
+        if query.lower() in ['exit', 'quit', 'bye']:
+            print("\nExiting conversation. Goodbye")
+            break
+        if not query:
+            continue
+        print("Thinking...")
+
+        try:
+            answer = await generate_answer(vector_store, query)
+            print(f"\nAI: {answer}")
+            print("-" * 30)
+        except Exception as e:
+            print(f"An error occurred while generating the answer: {e}")
+
+async def main():
     project_dir = os.path.dirname(os.path.abspath(__file__))
     doc_path = os.path.join(project_dir, 'docs', 'constitution.pdf')
     index_name = "faiss_index"
@@ -131,12 +209,14 @@ async def main():
     if not os.path.exists(index_name):
         await create_faiss_index_from_file(doc_path, index_name)
     
-    # 2. Test loading the index from local disk
+    # 2. Load the index from local disk
     print("\nAttempting to load index from disk...")
     vector_store = await load_index(index_name)
     
     if vector_store:
         print(f"Verified loaded store size: {vector_store.index.ntotal} documents")
+        # 3. Start conversation loop
+        await start_conversation(vector_store)
 
 if __name__ == "__main__":
     try:

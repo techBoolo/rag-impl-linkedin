@@ -1,15 +1,17 @@
-# RAG Project: Load Generated Index
+# RAG Project: Conversation Loop & Answer Generation
 
-This project is a Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It is designed to load, process, and query PDF documents using local LLMs.
+This project is an end-to-end local Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It loads, processes, indexes PDF documents into a FAISS vector store, and provides an interactive terminal chatbot to answer questions based on the document.
 
 ---
 
 ## 🚀 Features
 
-- **Local LLM & Embeddings**: Powered by Ollama (`llama3.1` and `nomic-embed-text`).
+- **Local LLM & Embeddings**: Powered by Ollama (`llama3.1` for chat and `nomic-embed-text` for vector embeddings).
+- **RAG Generation Chain**: Built with LangChain Expression Language (LCEL) connecting similarity retrieval, concise context-based prompting, and Ollama.
+- **Interactive Chatbot CLI**: Continuous interactive conversation loop in the terminal with conversational feedback and graceful exit handling.
 - **Async Processing**: High-performance asynchronous document loading using `alazy_load` and concurrent batch embeddings using `aembed_documents`.
-- **Memory Efficiency**: Document splitting using `RecursiveCharacterTextSplitter` and lazy embedding chunks with via async generators.
-- **Index Reusability**: Dynamically loads the persisted FAISS index from disk when available, skipping redundant PDF processing and embedding steps.
+- **Memory Efficiency**: Document splitting using `RecursiveCharacterTextSplitter` and lazy embedding chunks via async generators.
+- **Index Reusability**: Dynamically loads the persisted FAISS index from disk (`faiss_index/`), skipping redundant PDF processing and embedding steps.
 - **Modern Tooling**: Managed by `uv` for lightning-fast dependency management and environment isolation.
 
 ---
@@ -50,37 +52,39 @@ The project supports asynchronous document loading, memory-efficient splitting, 
   - If not, it uses `PyPDFLoader` with `alazy_load` to stream pages.
   - Uses `RecursiveCharacterTextSplitter` to lazily yield 1000-character chunks with 200-character overlap.
   - Batches document chunks iteratively via `OllamaEmbeddings` to generate vectors using `nomic-embed-text` without overloading memory.
-  - Builds a **FAISS** vector store iteratively from generated embeddings and saves it to the local disk for persistence.
+  - Builds a **FAISS** vector store iteratively from generated embeddings and saves it to disk for persistence.
+  - Passes the vector store to `start_conversation` to answer questions via `generate_answer`.
 
 ---
 
 ## 🏃 Running the Project
 
-To verify the document loading, splitting, and environment setup, run:
+To start the chatbot and ask questions:
 
 ```bash
 uv run python main.py
 ```
 
-### Expected Output (Initial Creation)
-```text
-Loading document from: .../rag-project/docs/constitution.pdf
-Splitting document and generating embeddings in batches...
-Processed batch 1 (10 chunks) -> Added to FAISS vector store. Total chunks embedded: 10
-Processed batch 2 (10 chunks) -> Added to FAISS vector store. Total chunks embedded: 20
-...
-Processed batch 12 (4 chunks) -> Added to FAISS vector store. Total chunks embedded: 114
-
-Successfully created FAISS index with 114 chunks across 12 batches!
-Index successfully saved to disk.
-```
-
-### Expected Output (Subsequent Starts)
-When run after the index has already been saved to disk, it skips embedding and loads directly:
+### Example Session Output
 ```text
 Attempting to load index from disk...
 Index 'faiss_index' loaded successfully.
 Verified loaded store size: 114 documents
+
+==================================================
+ETHIOPIAN CONSTITUTION CHATBOT
+Type your questions below. Type 'exit' or 'quit' to stop.
+==================================================
+
+You: What is the supreme law of the land?
+Thinking...
+
+AI: The Constitution is the supreme law of the land, as stated in Article 9 (1) of the Constitution. Any law, customary practice or a decision of an organ of state or a public official which contravenes this Constitution shall be of no effect.
+
+------------------------------
+You: exit
+
+Exiting conversation. Goodbye
 ```
 
 ---
@@ -94,3 +98,5 @@ Verified loaded store size: 114 documents
 - [x] FAISS Vector Store Integration
 - [x] FAISS Index Persistence to Disk
 - [x] FAISS Index Loading from Disk
+- [x] RAG LCEL Question Answering Chain
+- [x] Interactive Terminal Conversation Loop
