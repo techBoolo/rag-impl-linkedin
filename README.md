@@ -1,4 +1,4 @@
-# RAG Project: Web Chat Interface & Live Token Streaming
+# RAG Project: Document Category Sidebar & Source Citations
 
 This project is an end-to-end local Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It dynamically scans a `docs/` directory, tracks already-indexed files using cryptographic hashes to prevent duplicates, incrementally batch-embeds newly added PDFs into a persistent FAISS vector store, and provides both an interactive terminal chatbot and a Streamlit web chat interface to answer questions across documents.
 
@@ -16,6 +16,8 @@ This project is an end-to-end local Retrieval-Augmented Generation (RAG) system 
 - **RAG Generation Chain**: Built with LangChain Expression Language (LCEL) connecting similarity retrieval with metadata filters, document-tagged context prompting, and Ollama.
 - **Interactive Chatbot CLI**: Continuous interactive conversation loop in the terminal with status updates and graceful exit handling.
 - **Streamlit Web Chat Interface**: A single-file browser UI (`app.py`) over the same pipeline, with live token-by-token streaming, per-session chat history, and a retrieval scope selector.
+- **Document Category Sidebar**: Pick the topic or single document to search from directly in the web UI sidebar; switching scope clears the transcript so a conversation never mixes topics.
+- **Grounded Source Citations**: Every answer carries an expandable `📚 View Sources` panel listing the exact document, page, and matched text the model used — so answers can be verified against the source.
 - **Memory Efficiency**: Asynchronous document streaming via `PyPDFLoader.alazy_load()` and generator-based text splitting with `RecursiveCharacterTextSplitter`.
 - **Modern Tooling**: Managed by `uv` for lightning-fast dependency management and environment isolation.
 
@@ -56,6 +58,7 @@ uv add langchain langchain-ollama langchain-community langchain-text-splitters p
 6. **Vector Store Update**: Appends new vector embeddings to the loaded FAISS index (or initializes it if none exists) and persists both the FAISS index and tracking registry to disk.
 7. **Topic / Document Filtered Retrieval**: User selects retrieval scope at startup or during chat (`/filter` or `/topic`). LangChain applies a callable metadata filter against the FAISS index.
 8. **Multi-Document Answering**: RAG pipeline formats retrieved context with topic and source identifiers (`[category / filename]: ...`) and generates concise answers using `llama3.1`.
+9. **Source Attribution**: `retrieve_sources` returns the raw matched chunks so the UI can cite them. Those same chunks are passed into the chain via `build_rag_chain(docs=...)`, so retrieval happens once and the citations always match the passage the answer came from.
 
 ---
 
@@ -143,11 +146,30 @@ Streamlit opens at `http://localhost:8501`.
 - **Live streaming**: answers stream token by token via `generate_answer(..., stream=True)`.
 - **Session history**: the transcript is kept in `st.session_state.messages` and replayed on every rerun.
 - **Retrieval scope**: the sidebar mirrors the CLI's topic/document filter, so you can scope a
-  conversation to one topic or a single document without restarting the app.
+  conversation to one topic or a single document without restarting the app. Switching scope
+  clears the transcript.
+- **Source citations**: each answer has a `📚 View Sources` expander listing the document, page,
+  and matched text used to produce it. Retrieval runs **once** per question and those exact chunks
+  are handed to the model, so the citations cannot drift from the answer.
 - **New chat**: clears the current session's transcript while keeping the loaded index warm.
 
 The FAISS index is loaded once per server process via `@st.cache_resource`, so follow-up
 questions are answered without reloading embeddings from disk.
+
+### Verifying an Answer
+
+```text
+AI: To amend the constitution, Article 105 requires a two-thirds majority vote in the House of
+    Peoples' Representatives or the House of the Federation...
+
+> 📚 View Sources (3)
+>    1. 📄 constitution.pdf — p. 40 · general
+>    2. 📄 constitution.pdf — p. 24 · general
+>    3. 📄 constitution.pdf — p. 32 · general
+```
+
+Page numbers come from the PDF's own page labels via `PyPDFLoader`, and citations are deduped per
+page — four matching chunks across three distinct pages show as three sources.
 
 ---
 
@@ -166,3 +188,5 @@ questions are answered without reloading embeddings from disk.
 - [x] Recursive Subfolder Scanning & Metadata Tagging
 - [x] Interactive Topic & Document Retrieval Filtering
 - [x] Streamlit Web Chat Interface with Live Token Streaming
+- [x] Document Category Sidebar with History Reset on Scope Change
+- [x] Grounded Source Citations with Page-Level References

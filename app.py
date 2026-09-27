@@ -9,6 +9,7 @@ from main import (
     get_available_topics_and_docs,
     get_indexed_files,
     load_index,
+    retrieve_sources,
 )
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -84,12 +85,56 @@ def to_active_filter(scope):
     return {"type": filter_type, "value": filter_value}
 
 
-def stream_answer_into(placeholder, vector_store, query, active_filter):
+def page_reference(doc):
+    """Human-readable page label, preferring the PDF's own label over a 1-based index."""
+    metadata = doc.metadata
+    label = metadata.get("page_label")
+    if label:
+        return f"p. {label}"
+    if metadata.get("page") is not None:
+        return f"p. {int(metadata['page']) + 1}"
+    return "page unknown"
+
+
+def to_sources(docs):
+    """Condenses retrieved chunks into citation records, one per document page."""
+    sources = []
+    seen = set()
+    for doc in docs:
+        metadata = doc.metadata
+        filename = metadata.get("filename") or os.path.basename(metadata.get("source", "Document"))
+        key = (filename, metadata.get("page"))
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append(
+            {
+                "filename": filename,
+                "category": metadata.get("category", "general"),
+                "page": page_reference(doc),
+                "excerpt": doc.page_content.strip(),
+            }
+        )
+    return sources
+
+
+def render_sources(sources):
+    """Renders the retrieved chunks behind an answer as expandable citations."""
+    if not sources:
+        return
+    with st.expander(f"📚 View Sources ({len(sources)})"):
+        for position, source in enumerate(sources, start=1):
+            label = f"{position}. 📄 {source['filename']} — {source['page']} · {source['category']}"
+            with st.expander(label):
+                st.text(source["excerpt"])
+
+
+def stream_answer_into(placeholder, vector_store, query, active_filter, docs=None):
     """Streams the answer into a placeholder, rendering each token as it arrives."""
     async def render():
         answer = ""
         token_stream = await generate_answer(
-            vector_store, query, active_filter=active_filter, stream=True
+            vector_store, query, active_filter=active_filter, stream=True, docs=docs
         )
         try:
             async for chunk in token_stream:
@@ -110,9 +155,10 @@ def init_session_state():
 
 
 def render_message(message):
-    """Renders a single stored chat message."""
+    """Renders a single stored chat message, including its citations."""
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        render_sources(message.get("sources", []))
 
 
 def main():
@@ -150,6 +196,10 @@ def main():
             st.session_state.messages = []
             st.rerun()
 
+    if st.session_state.get("active_scope") != scope:
+        st.session_state.messages = []
+        st.session_state["active_scope"] = scope
+
     st.title("📚 Knowledge Assistant")
     st.caption(f"Retrieval scope: **{scope_options[scope]}**")
 
@@ -164,19 +214,25 @@ def main():
         render_message(st.session_state.messages[-1])
 
         with st.chat_message("assistant"):
-            placeholder = st.empty()
+            answer, sources = None, []
             try:
                 with st.spinner("Searching the index..."):
-                    answer = stream_answer_into(
-                        placeholder, vector_store, prompt, to_active_filter(scope)
+                    docs = run_async(
+                        retrieve_sources(vector_store, prompt, to_active_filter(scope))
                     )
+                    sources = to_sources(docs)
+                placeholder = st.empty()
+                answer = stream_answer_into(
+                    placeholder, vector_store, prompt, to_active_filter(scope), docs=docs
+                )
+                render_sources(sources)
             except Exception as e:
-                placeholder.empty()
                 st.error(f"Failed to generate an answer: {e}")
-                answer = None
 
         if answer is not None:
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+            st.session_state.messages.append(
+                {"role": "assistant", "content": answer, "sources": sources}
+            )
 
 
 if __name__ == "__main__":

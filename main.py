@@ -7,7 +7,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 INDEX_METADATA_FILE = "indexed_files.json"
@@ -386,10 +386,42 @@ def select_topic_filter(categories, documents):
     print(f"Invalid selection '{user_choice}'. Defaulting to All Topics & Documents.")
     return None
 
-def build_rag_chain(vector_store, active_filter=None):
+def build_retriever(vector_store, active_filter=None):
+    """
+    Builds the FAISS retriever, applying the optional topic/document metadata filter.
+    """
+    # Configure search kwargs with optional metadata filter
+    search_kwargs = {"k": 4}
+    if active_filter:
+        filter_type = active_filter.get("type")
+        filter_val = active_filter.get("value")
+
+        if filter_type == "category":
+            search_kwargs["filter"] = lambda m: m.get("category", "general").lower() == filter_val.lower()
+        elif filter_type == "filename":
+            search_kwargs["filter"] = lambda m: (
+                m.get("filename", "").lower() == filter_val.lower()
+                or os.path.basename(m.get("source", "")).lower() == filter_val.lower()
+            )
+
+    return vector_store.as_retriever(search_kwargs=search_kwargs)
+
+def format_docs(docs):
+    """Renders retrieved chunks as prompt context tagged with their topic and source."""
+    if not docs:
+        return "No relevant context found matching the selected filter."
+    formatted = []
+    for doc in docs:
+        src = doc.metadata.get("filename") or os.path.basename(doc.metadata.get("source", "Document"))
+        cat = doc.metadata.get("category", "general")
+        formatted.append(f"[{cat} / {src}]:\n{doc.page_content}")
+    return "\n\n".join(formatted)
+
+def build_rag_chain(vector_store, active_filter=None, docs=None):
     """
     Assembles the LCEL RAG chain: metadata-filtered retriever -> context formatter
     -> prompt -> Ollama chat model -> string output parser.
+    Pass `docs` to reuse chunks that were already retrieved, avoiding a second search.
     """
     llm = get_chat_model()
 
@@ -409,49 +441,36 @@ def build_rag_chain(vector_store, active_filter=None):
 
     prompt = ChatPromptTemplate.from_template(template)
 
-    # Configure search kwargs with optional metadata filter
-    search_kwargs = {"k": 4}
-    if active_filter:
-        filter_type = active_filter.get("type")
-        filter_val = active_filter.get("value")
-
-        if filter_type == "category":
-            search_kwargs["filter"] = lambda m: m.get("category", "general").lower() == filter_val.lower()
-        elif filter_type == "filename":
-            search_kwargs["filter"] = lambda m: (
-                m.get("filename", "").lower() == filter_val.lower()
-                or os.path.basename(m.get("source", "")).lower() == filter_val.lower()
-            )
-
-    retriever = vector_store.as_retriever(search_kwargs=search_kwargs)
-
-    def format_docs(docs):
-        if not docs:
-            return "No relevant context found matching the selected filter."
-        formatted = []
-        for doc in docs:
-            src = doc.metadata.get("filename") or os.path.basename(doc.metadata.get("source", "Document"))
-            cat = doc.metadata.get("category", "general")
-            formatted.append(f"[{cat} / {src}]:\n{doc.page_content}")
-        return "\n\n".join(formatted)
+    if docs is None:
+        context_step = build_retriever(vector_store, active_filter) | format_docs
+    else:
+        context_step = RunnableLambda(lambda _query: format_docs(docs))
 
     return (
-        {"context": retriever | format_docs, "question": RunnablePassthrough()}
+        {"context": context_step, "question": RunnablePassthrough()}
         | prompt
         | llm
         | StrOutputParser()
     )
 
-async def stream_answer(vector_store, query, active_filter=None):
+async def retrieve_sources(vector_store, query, active_filter=None):
+    """
+    Runs similarity search and returns the raw retrieved chunks so callers can
+    surface them as citations (document name, page, and matched text).
+    """
+    retriever = build_retriever(vector_store, active_filter)
+    return await retriever.ainvoke(query)
+
+async def stream_answer(vector_store, query, active_filter=None, docs=None):
     """
     Async generator that yields the answer token by token as the Ollama model produces it.
     """
-    rag_chain = build_rag_chain(vector_store, active_filter)
+    rag_chain = build_rag_chain(vector_store, active_filter, docs=docs)
     async for chunk in rag_chain.astream(query):
         if chunk:
             yield str(chunk)
 
-async def generate_answer(vector_store, query, active_filter=None, stream=False):
+async def generate_answer(vector_store, query, active_filter=None, stream=False, docs=None):
     """
     Takes a query, finds relevant context in the FAISS index with optional topic/doc filter,
     and generates an answer using an Ollama LLM.
@@ -459,9 +478,9 @@ async def generate_answer(vector_store, query, active_filter=None, stream=False)
     so callers such as the Streamlit UI can render tokens as they arrive.
     """
     if stream:
-        return stream_answer(vector_store, query, active_filter=active_filter)
+        return stream_answer(vector_store, query, active_filter=active_filter, docs=docs)
 
-    rag_chain = build_rag_chain(vector_store, active_filter)
+    rag_chain = build_rag_chain(vector_store, active_filter, docs=docs)
     response = await rag_chain.ainvoke(query)
     return response
 
