@@ -1,6 +1,6 @@
-# RAG Project: Recursive Ingestion & Topic-Scoped Querying
+# RAG Project: Web Chat Interface & Live Token Streaming
 
-This project is an end-to-end local Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It dynamically scans a `docs/` directory, tracks already-indexed files using cryptographic hashes to prevent duplicates, incrementally batch-embeds newly added PDFs into a persistent FAISS vector store, and provides an interactive terminal chatbot to answer questions across documents.
+This project is an end-to-end local Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It dynamically scans a `docs/` directory, tracks already-indexed files using cryptographic hashes to prevent duplicates, incrementally batch-embeds newly added PDFs into a persistent FAISS vector store, and provides both an interactive terminal chatbot and a Streamlit web chat interface to answer questions across documents.
 
 ---
 
@@ -15,6 +15,7 @@ This project is an end-to-end local Retrieval-Augmented Generation (RAG) system 
 - **Local LLM & Embeddings**: Powered by Ollama (`llama3.1` for conversational answers and `nomic-embed-text` for vector embeddings).
 - **RAG Generation Chain**: Built with LangChain Expression Language (LCEL) connecting similarity retrieval with metadata filters, document-tagged context prompting, and Ollama.
 - **Interactive Chatbot CLI**: Continuous interactive conversation loop in the terminal with status updates and graceful exit handling.
+- **Streamlit Web Chat Interface**: A single-file browser UI (`app.py`) over the same pipeline, with live token-by-token streaming, per-session chat history, and a retrieval scope selector.
 - **Memory Efficiency**: Asynchronous document streaming via `PyPDFLoader.alazy_load()` and generator-based text splitting with `RecursiveCharacterTextSplitter`.
 - **Modern Tooling**: Managed by `uv` for lightning-fast dependency management and environment isolation.
 
@@ -39,8 +40,8 @@ ollama pull nomic-embed-text
 uv venv
 source .venv/bin/activate
 
-# Install core and RAG-specific dependencies
-uv add langchain langchain-ollama langchain-community langchain-text-splitters pypdf faiss-cpu
+# Install core, RAG-specific, and UI dependencies
+uv add langchain langchain-ollama langchain-community langchain-text-splitters pypdf faiss-cpu streamlit
 ```
 
 ---
@@ -128,6 +129,28 @@ Exiting conversation. Goodbye!
 
 ---
 
+## 🖥️ Web Chat Interface
+
+The same RAG pipeline is also available as a browser chat UI in `app.py`. Ingest your
+documents once with the CLI (which creates `faiss_index/`), then launch:
+
+```bash
+uv run streamlit run app.py
+```
+
+Streamlit opens at `http://localhost:8501`.
+
+- **Live streaming**: answers stream token by token via `generate_answer(..., stream=True)`.
+- **Session history**: the transcript is kept in `st.session_state.messages` and replayed on every rerun.
+- **Retrieval scope**: the sidebar mirrors the CLI's topic/document filter, so you can scope a
+  conversation to one topic or a single document without restarting the app.
+- **New chat**: clears the current session's transcript while keeping the loaded index warm.
+
+The FAISS index is loaded once per server process via `@st.cache_resource`, so follow-up
+questions are answered without reloading embeddings from disk.
+
+---
+
 ## 📈 Roadmap
 - [x] Project Initialization
 - [x] Basic LLM Connection
@@ -142,3 +165,4 @@ Exiting conversation. Goodbye!
 - [x] Multi-Document Ingestion & Deduplication Tracking
 - [x] Recursive Subfolder Scanning & Metadata Tagging
 - [x] Interactive Topic & Document Retrieval Filtering
+- [x] Streamlit Web Chat Interface with Live Token Streaming

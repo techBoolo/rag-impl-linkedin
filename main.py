@@ -386,10 +386,10 @@ def select_topic_filter(categories, documents):
     print(f"Invalid selection '{user_choice}'. Defaulting to All Topics & Documents.")
     return None
 
-async def generate_answer(vector_store, query, active_filter=None):
+def build_rag_chain(vector_store, active_filter=None):
     """
-    Takes a query, finds relevant context in the FAISS index with optional topic/doc filter,
-    and generates an answer using an Ollama LLM.
+    Assembles the LCEL RAG chain: metadata-filtered retriever -> context formatter
+    -> prompt -> Ollama chat model -> string output parser.
     """
     llm = get_chat_model()
 
@@ -435,13 +435,33 @@ async def generate_answer(vector_store, query, active_filter=None):
             formatted.append(f"[{cat} / {src}]:\n{doc.page_content}")
         return "\n\n".join(formatted)
 
-    rag_chain = (
+    return (
         {"context": retriever | format_docs, "question": RunnablePassthrough()}
         | prompt
         | llm
         | StrOutputParser()
     )
 
+async def stream_answer(vector_store, query, active_filter=None):
+    """
+    Async generator that yields the answer token by token as the Ollama model produces it.
+    """
+    rag_chain = build_rag_chain(vector_store, active_filter)
+    async for chunk in rag_chain.astream(query):
+        if chunk:
+            yield str(chunk)
+
+async def generate_answer(vector_store, query, active_filter=None, stream=False):
+    """
+    Takes a query, finds relevant context in the FAISS index with optional topic/doc filter,
+    and generates an answer using an Ollama LLM.
+    When stream=True, returns an async iterator of text chunks instead of the full string,
+    so callers such as the Streamlit UI can render tokens as they arrive.
+    """
+    if stream:
+        return stream_answer(vector_store, query, active_filter=active_filter)
+
+    rag_chain = build_rag_chain(vector_store, active_filter)
     response = await rag_chain.ainvoke(query)
     return response
 
