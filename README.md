@@ -1,4 +1,4 @@
-# RAG Project: Document Category Sidebar & Source Citations
+# RAG Project: Drag-and-Drop PDF Upload & On-Demand Indexing
 
 This project is an end-to-end local Retrieval-Augmented Generation (RAG) system built with **LangChain**, **Ollama**, and **Python**. It dynamically scans a `docs/` directory, tracks already-indexed files using cryptographic hashes to prevent duplicates, incrementally batch-embeds newly added PDFs into a persistent FAISS vector store, and provides both an interactive terminal chatbot and a Streamlit web chat interface to answer questions across documents.
 
@@ -18,6 +18,8 @@ This project is an end-to-end local Retrieval-Augmented Generation (RAG) system 
 - **Streamlit Web Chat Interface**: A single-file browser UI (`app.py`) over the same pipeline, with live token-by-token streaming, per-session chat history, and a retrieval scope selector.
 - **Document Category Sidebar**: Pick the topic or single document to search from directly in the web UI sidebar; switching scope clears the transcript so a conversation never mixes topics.
 - **Grounded Source Citations**: Every answer carries an expandable `📚 View Sources` panel listing the exact document, page, and matched text the model used — so answers can be verified against the source.
+- **Drag-and-Drop PDF Upload**: Add documents from the browser sidebar straight into a `docs/` category folder — no terminal commands.
+- **On-Demand Indexing with Live Progress**: Uploads are chunked and batch-embedded on the spot, with a `st.status` step log and a chunk-level `st.progress` bar, then the FAISS index is reloaded so the new document is queryable immediately.
 - **Memory Efficiency**: Asynchronous document streaming via `PyPDFLoader.alazy_load()` and generator-based text splitting with `RecursiveCharacterTextSplitter`.
 - **Modern Tooling**: Managed by `uv` for lightning-fast dependency management and environment isolation.
 
@@ -171,6 +173,19 @@ AI: To amend the constitution, Article 105 requires a two-thirds majority vote i
 Page numbers come from the PDF's own page labels via `PyPDFLoader`, and citations are deduped per
 page — four matching chunks across three distinct pages show as three sources.
 
+### Adding a Document
+
+1. Pick a **Target folder** in the sidebar — the `docs/` root or any existing subfolder.
+2. Drop one or more PDFs onto the uploader and press **Index Document**.
+3. Watch the status log and progress bar as the document is chunked and batch-embedded.
+4. The new document is queryable straight away; the chunk counter and scope list update in place.
+
+Uploads are deduplicated by SHA-256, so re-uploading unchanged content is a no-op. Both the
+filename and the target folder are sanitized, so a crafted name cannot write outside `docs/`.
+
+> **Note:** the index is append-only, so re-uploading a *modified* file leaves its old chunks in
+> place. Delete and re-create `faiss_index/` (or add a new file) if you need a clean rebuild.
+
 ---
 
 ## 📈 Roadmap
@@ -190,3 +205,6 @@ page — four matching chunks across three distinct pages show as three sources.
 - [x] Streamlit Web Chat Interface with Live Token Streaming
 - [x] Document Category Sidebar with History Reset on Scope Change
 - [x] Grounded Source Citations with Page-Level References
+- [x] Drag-and-Drop PDF Upload to Category Folders
+- [x] On-Demand In-App Indexing with Live Progress
+- [x] Hot-Reload of the FAISS Index After Ingestion

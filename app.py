@@ -5,14 +5,19 @@ import threading
 import streamlit as st
 
 from main import (
+    count_document_chunks,
     generate_answer,
     get_available_topics_and_docs,
+    get_doc_categories,
     get_indexed_files,
+    ingest_new_documents,
     load_index,
     retrieve_sources,
+    save_uploaded_pdf,
 )
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+DOCS_DIR = os.path.join(PROJECT_DIR, "docs")
 INDEX_DIR = os.path.join(PROJECT_DIR, "faiss_index")
 
 SCOPE_ALL = "__all__"
@@ -148,6 +153,79 @@ def stream_answer_into(placeholder, vector_store, query, active_filter, docs=Non
     return run_async(render())
 
 
+def clear_caches():
+    """Drops the cached index and registries so the next render reloads from disk."""
+    get_vector_store.clear()
+    get_index_registry.clear()
+    get_scope_options.clear()
+
+
+def index_uploaded_documents(uploads, category, vector_store, indexed_files):
+    """
+    Saves the uploaded PDFs, ingests them into the on-disk FAISS index with live progress,
+    and reports what happened. Returns a short status message for the caller to surface.
+    """
+    with st.status("Preparing upload...", expanded=True) as status:
+        records = []
+        for upload in uploads:
+            status.write(f"Saving `{upload.name}` to `docs/{category}/`")
+            records.append(save_uploaded_pdf(upload.getvalue(), DOCS_DIR, category, upload.name))
+
+        pending, skipped = [], []
+        for record in records:
+            tracked = indexed_files.get(record["rel_path"])
+            if tracked and tracked.get("hash") == record["hash"]:
+                skipped.append(record["filename"])
+            else:
+                pending.append(record)
+
+        for filename in skipped:
+            status.write(f"Skipped `{filename}` — already indexed and unchanged")
+
+        if not pending:
+            status.update(label="Nothing new to index", state="complete")
+            return "Nothing new to index — the upload matched the indexed content"
+
+        total_chunks = 0
+        for record in pending:
+            count = run_async(count_document_chunks(record))
+            total_chunks += count
+            status.write(f"Scanned `{record['filename']}` — {count} chunks to embed")
+
+        status.update(label=f"Embedding {total_chunks} chunks...", state="running")
+        progress = st.progress(0.0, text=f"0 / {total_chunks} chunks embedded")
+
+        def on_batch(_batches_done, chunks_done, _filename):
+            progress.progress(
+                min(chunks_done / total_chunks, 1.0),
+                text=f"{chunks_done} / {total_chunks} chunks embedded",
+            )
+
+        try:
+            run_async(
+                ingest_new_documents(
+                    new_files=pending,
+                    vector_store=vector_store,
+                    index_name=INDEX_DIR,
+                    indexed_files=indexed_files,
+                    on_batch=on_batch,
+                )
+            )
+        except Exception as e:
+            progress.empty()
+            status.update(label="Indexing failed", state="error")
+            status.write(f"Error: {e}")
+            return f"Indexing failed: {e}"
+
+        progress.empty()
+        total_in_index = getattr(vector_store.index, "ntotal", 0)
+        status.update(label=f"Indexed {total_chunks} new chunks", state="complete")
+        status.write(
+            f"`{pending[0]['filename']}` is now searchable. Vector store holds {total_in_index} chunks."
+        )
+        return f"Indexed {total_chunks} new chunks from {len(pending)} document(s) — now searchable"
+
+
 def init_session_state():
     """Initializes the per-session chat transcript."""
     if "messages" not in st.session_state:
@@ -196,9 +274,40 @@ def main():
             st.session_state.messages = []
             st.rerun()
 
+        st.divider()
+        st.header("Add Documents")
+        st.caption("Drop PDFs here to index them without touching the terminal.")
+        target_category = st.selectbox(
+            "Target folder",
+            options=get_doc_categories(DOCS_DIR),
+            format_func=lambda name: "docs/ (general)" if name == "general" else f"docs/{name}/",
+        )
+        uploads = st.file_uploader(
+            "PDF files",
+            type=["pdf"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
+        )
+        if st.button(
+            "Index Document",
+            type="primary",
+            use_container_width=True,
+            disabled=not uploads,
+        ):
+            st.session_state["pending_index"] = True
+
     if st.session_state.get("active_scope") != scope:
         st.session_state.messages = []
         st.session_state["active_scope"] = scope
+
+    if st.session_state.pop("pending_index", False):
+        message = index_uploaded_documents(uploads, target_category, vector_store, indexed_files)
+        st.session_state["index_notice"] = message
+        clear_caches()
+        st.rerun()
+
+    if notice := st.session_state.pop("index_notice", None):
+        st.toast(notice, icon="📚")
 
     st.title("📚 Knowledge Assistant")
     st.caption(f"Retrieval scope: **{scope_options[scope]}**")

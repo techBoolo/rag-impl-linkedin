@@ -210,10 +210,12 @@ async def process_embeddings(chunk_generator, batch_size=10):
         vectors = await embeddings_model.aembed_documents(texts)
         yield batch, vectors
 
-async def ingest_new_documents(new_files, vector_store=None, index_name="faiss_index", indexed_files=None):
+async def ingest_new_documents(new_files, vector_store=None, index_name="faiss_index", indexed_files=None, on_batch=None):
     """
     Lazily loads, chunks, embeds, and indexes only the new PDF documents in batches.
     Updates the vector_store and saves both the FAISS index and tracking registry.
+    `on_batch` is an optional callback invoked as on_batch(batches_done, chunks_done)
+    after each batch so callers such as the web UI can render live progress.
     """
     if indexed_files is None:
         indexed_files = {}
@@ -245,6 +247,8 @@ async def ingest_new_documents(new_files, vector_store=None, index_name="faiss_i
             total_chunks_processed += len(batch)
             vector_store = await create_faiss_index(batch, vectors, vector_store)
             print(f"  Processed batch {total_batches_processed} ({len(batch)} chunks) -> Total chunks embedded: {total_chunks_processed}")
+            if on_batch:
+                on_batch(total_batches_processed, total_chunks_processed, filename)
 
         # Update tracking registry for this file
         indexed_files[rel_path] = {
@@ -261,6 +265,66 @@ async def ingest_new_documents(new_files, vector_store=None, index_name="faiss_i
         print(f"\nSuccessfully saved updated FAISS index to '{index_name}' with {total_chunks_processed} new chunks added!")
 
     return vector_store
+
+async def count_document_chunks(file_record, chunk_size=1000, chunk_overlap=200):
+    """
+    Counts the chunks a document will produce without embedding them, so a caller can
+    show an exact progress total. Streams the document instead of materializing it, at the
+    cost of parsing the PDF twice.
+    """
+    doc_iterator = await load_document(file_record["path"])
+    chunk_generator = split_document(
+        doc_iterator,
+        category=file_record.get("category", "general"),
+        filename=file_record.get("filename"),
+        file_hash=file_record.get("hash"),
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap
+    )
+
+    total = 0
+    async for _ in chunk_generator:
+        total += 1
+    return total
+
+def get_doc_categories(docs_dir, default="general"):
+    """
+    Lists the ingestion target categories: the docs root plus every existing subfolder.
+    """
+    categories = {default}
+    if os.path.isdir(docs_dir):
+        for entry in sorted(os.listdir(docs_dir)):
+            if entry.startswith("."):
+                continue
+            if os.path.isdir(os.path.join(docs_dir, entry)):
+                categories.add(entry)
+    return sorted(categories)
+
+def save_uploaded_pdf(uploaded_bytes, docs_dir, category, filename):
+    """
+    Writes an uploaded PDF into the docs/<category> folder and returns a file record
+    in the same shape the ingestion pipeline expects. Rejects non-PDF files and
+    flattens the filename so an upload cannot escape the docs directory.
+    """
+    if not filename.lower().endswith(".pdf"):
+        raise ValueError(f"Only PDF files are supported (rejected: {filename})")
+
+    safe_name = os.path.basename(filename)
+    safe_category = os.path.basename(category) if category else "general"
+    target_dir = os.path.join(docs_dir, safe_category) if safe_category != "general" else docs_dir
+    os.makedirs(target_dir, exist_ok=True)
+
+    file_path = os.path.join(target_dir, safe_name)
+    with open(file_path, "wb") as f:
+        f.write(uploaded_bytes)
+
+    return {
+        "path": file_path,
+        "rel_path": os.path.relpath(file_path, docs_dir),
+        "filename": safe_name,
+        "category": safe_category if safe_category != "general" else "general",
+        "hash": get_file_hash(file_path)
+    }
 
 async def load_index(index_name="faiss_index"):
     """
